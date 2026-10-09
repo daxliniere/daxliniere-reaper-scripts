@@ -4,6 +4,8 @@ local store, queue, messages = {}, {}, {}
 local current, tick, text_calls, stars_clicked = 1, 0, 0, false
 local clipper_creations, attached_clipper = 0, nil
 local row_selectable_drawn, yellow_cells = false, 0
+local submitted_id, disabled = nil, false
+local selectable_count = 0
 local entries = {{desc = 'Initial', time = 1}, {desc = 'Volume adjusted', time = 2}}
 local I = setmetatable({}, {__index = function(t, name)
   local value
@@ -14,7 +16,14 @@ end})
 I.CreateContext = function() return {} end
 I.GetFontSize = function() return 14 end
 I.Begin = function() return true, true end
-I.Button = function() return false end
+I.BeginDisabled = function(_, value) disabled = value end
+I.EndDisabled = function() disabled = false end
+I.Button = function(_, label)
+  if label == 'Load selected state' then assert(disabled, 'Load button must be disabled with no selection or the current state selected') end
+  return false
+end
+I.TableNeedSort = function() return false end
+I.PushID = function(_, id) submitted_id = id end
 I.InputText = function(_, _, value) return false, value end
 I.Checkbox = function(_, label, value)
   if label == 'Keep capturing when window is closed' then
@@ -49,13 +58,18 @@ I.ListClipper_Step = function(c) if not c.done then c.done = true; return true e
 I.ListClipper_GetDisplayRange = function(c) return 0, c.count end
 I.SmallButton = function()
   assert(row_selectable_drawn, 'Star button must be submitted after the spanning row target')
-  if not stars_clicked then stars_clicked = true; return true end
+  if not stars_clicked and submitted_id == 1 then stars_clicked = true; return true end
   return false
 end
 I.Selectable = function(_, _, _, flags)
   assert(flags & 2 ~= 0, 'Selection must span the entire table row')
   assert(flags & 4 ~= 0, 'Selection must allow the star button to handle its own clicks')
   row_selectable_drawn = true
+  selectable_count = selectable_count + 1
+  if selectable_count == 1 then
+    assert(submitted_id == 2, 'Newest state must appear first by default')
+    return true -- Select the current state; the load button must stay disabled.
+  end
   return false
 end
 I.Text = function(_, text) assert(type(text) == 'string'); text_calls = text_calls + 1 end

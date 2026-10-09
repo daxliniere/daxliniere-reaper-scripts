@@ -193,7 +193,8 @@ function M.snapshot(proj)
       volume = reaper.GetMediaTrackInfo_Value(track, 'D_VOL'),
       pan = reaper.GetMediaTrackInfo_Value(track, 'D_PAN'),
       mute = reaper.GetMediaTrackInfo_Value(track, 'B_MUTE'),
-      solo = reaper.GetMediaTrackInfo_Value(track, 'I_SOLO')}
+      solo = reaper.GetMediaTrackInfo_Value(track, 'I_SOLO'),
+      selected = reaper.GetMediaTrackInfo_Value(track, 'I_SELECTED')}
   end
   for i = 0, reaper.CountMediaItems(proj) - 1 do
     local item = reaper.GetMediaItem(proj, i)
@@ -204,7 +205,10 @@ function M.snapshot(proj)
       position = reaper.GetMediaItemInfo_Value(item, 'D_POSITION'),
       length = reaper.GetMediaItemInfo_Value(item, 'D_LENGTH'),
       volume = reaper.GetMediaItemInfo_Value(item, 'D_VOL'),
-      mute = reaper.GetMediaItemInfo_Value(item, 'B_MUTE')}
+      mute = reaper.GetMediaItemInfo_Value(item, 'B_MUTE'),
+      selected = reaper.GetMediaItemInfo_Value(item, 'B_UISEL'),
+      fade_in = reaper.GetMediaItemInfo_Value(item, 'D_FADEINLEN'),
+      fade_out = reaper.GetMediaItemInfo_Value(item, 'D_FADEOUTLEN')}
   end
   return state
 end
@@ -217,6 +221,7 @@ local function volume_change(a, b)
   return label(x) .. ' -> ' .. label(y) .. ' dB' .. delta
 end
 local function format_change(prop, a, b)
+  if prop == 'selected' then return (a ~= 0 and 'selected' or 'unselected') .. ' -> ' .. (b ~= 0 and 'selected' or 'unselected') end
   if prop == 'volume' then return volume_change(a, b) end
   if prop == 'pan' then return ('%+.1f%% -> %+.1f%% (%+.1f%%)'):format(a * 100, b * 100, (b - a) * 100) end
   if prop == 'mute' then return (a ~= 0 and 'muted' or 'unmuted') .. ' -> ' .. (b ~= 0 and 'muted' or 'unmuted') end
@@ -227,15 +232,17 @@ end
 function M.diff(before, after)
   local changes = {}
   for _, kind in ipairs({'tracks', 'items'}) do
-    local props = kind == 'tracks' and {'volume', 'pan', 'mute', 'solo'} or {'volume', 'position', 'length', 'mute'}
+    local props = kind == 'tracks' and {'volume', 'pan', 'mute', 'solo', 'selected'}
+      or {'volume', 'position', 'length', 'mute', 'selected', 'fade_in', 'fade_out'}
     for guid, b in pairs(after[kind]) do
       local a = before[kind][guid]
       if not a then changes[#changes + 1] = b.name .. ': added'
       else
         if a.name ~= b.name then changes[#changes + 1] = a.name .. ': renamed to ' .. b.name end
         for _, prop in ipairs(props) do
-          if math.abs(a[prop] - b[prop]) > 1e-9 then
-            changes[#changes + 1] = b.name .. ': ' .. prop .. ' ' .. format_change(prop, a[prop], b[prop])
+          local old_value, new_value = a[prop] or 0, b[prop] or 0
+          if math.abs(old_value - new_value) > 1e-9 then
+            changes[#changes + 1] = b.name .. ': ' .. prop .. ' ' .. format_change(prop, old_value, new_value)
           end
         end
       end
@@ -321,6 +328,98 @@ function M.observe(session, rows, current, snapshot, prefix)
     if details ~= '' then row.details = details end
   end
   session.rows, session.current, session.snapshot = rows, current, snapshot
+end
+
+
+function M.sort_rows(rows, column, descending, current)
+  local function value(row)
+    if column == 0 then return row.star and 1 or 0 end
+    if column == 1 then return (row.index == current and 'Current' or (row.index > current and 'Redo' or 'Undo')) .. (row.saved and ' / Saved' or '') end
+    if column == 2 then return row.time end
+    if column == 3 then return row.desc:lower() end
+    return (row.details or ''):lower()
+  end
+  table.sort(rows, function(a, b)
+    local av, bv = value(a), value(b)
+    if av == bv then return descending and a.index > b.index or (not descending and a.index < b.index) end
+    if descending then return av > bv end
+    return av < bv
+  end)
+end
+
+function M.can_load(rows, id, current)
+  for _, row in ipairs(rows) do if row.id == id then return row.index ~= current end end
+  return false
+end
+
+-- Deferred inspection gives REAPER a main-loop cycle to apply each undo state.
+-- No UI-refresh lock is held across frames, and restoration runs on every failure.
+function M.inspect_async(proj, key, id, done)
+  if reaper.GetPlayStateEx(proj) ~= 0 then done(false, 'Stop playback/recording before reading details.'); return end
+  local ledger, original = M.refresh(proj, key)
+  local selected
+  for _, row in ipairs(ledger.rows) do if row.id == id then selected = row end end
+  if not selected or selected.index == 0 then done(false, 'Select a state with a preceding state to compare.'); return end
+  local topology = M.topology(ledger.rows)
+  local before, details, restoring = nil, nil, false
+  local function restore(ok, message)
+    if restoring then return end
+    restoring = true
+    local success, err = pcall(function()
+      local rows = M.read(proj)
+      local restore_index = original
+      if M.topology(rows) ~= topology then
+        restore_index = nil
+        local original_row = ledger.rows[original + 1]
+        for _, row in ipairs(rows) do
+          if original_row and signature(row) == signature(original_row) then
+            assert(restore_index == nil, 'Original state is ambiguous after history changed.')
+            restore_index = row.index
+          end
+        end
+      end
+      assert(restore_index ~= nil, 'Original state is no longer available.')
+      reaper.Undo_SetCurPos(proj, restore_index, 0)
+      reaper.UpdateArrange()
+      reaper.defer(function()
+        local restored, problem = xpcall(function()
+          assert(reaper.Undo_GetCurEntry(proj) == restore_index, 'Could not restore original undo position.')
+          assert(M.topology(M.read(proj)) == topology, 'History changed during inspection; details not saved.')
+          if ok then
+            -- Reload metadata so concurrent bookmark actions cannot be overwritten.
+            local latest = M.refresh(proj, key)
+            for _, row in ipairs(latest.rows) do
+              if row.id == id then row.details = details ~= '' and details or 'No supported changes found (FX, MIDI and envelopes are not decoded).' end
+            end
+            M.save(key, latest)
+          end
+        end, debug.traceback)
+        done(ok and restored, not restored and problem or message)
+      end)
+    end)
+    if not success then done(false, 'Could not restore original state: ' .. tostring(err)) end
+  end
+  local function stage(index, callback)
+    local ok, err = pcall(reaper.Undo_SetCurPos, proj, index, 0)
+    if not ok then restore(false, tostring(err)); return end
+    reaper.UpdateArrange()
+    reaper.defer(function()
+      local success, problem = xpcall(function()
+        assert(reaper.GetPlayStateEx(proj) == 0, 'Playback started during inspection.')
+        assert(reaper.Undo_GetCurEntry(proj) == index, 'REAPER did not load the requested state.')
+        assert(M.topology(M.read(proj)) == topology, 'History changed during inspection.')
+        callback()
+      end, debug.traceback)
+      if not success then restore(false, problem) end
+    end)
+  end
+  stage(selected.index - 1, function()
+    before = M.snapshot(proj)
+    stage(selected.index, function()
+      details = M.diff(before, M.snapshot(proj))
+      restore(true, 'Details read; original undo position restored.')
+    end)
+  end)
 end
 
 return M

@@ -145,4 +145,59 @@ check(new_rows[2].details:find('-12.04', 1, true), 'Coalesced drag must retain i
 local missed = {{id = 1, desc = 'Initial', time = 1}, new_rows[2], {id = 3, desc = 'A', time = 3}, {id = 4, desc = 'B', time = 4}}
 H.observe(s, missed, 3, state(1), 2)
 check(not missed[4].details, 'Multiple missed edits must not receive an invented per-entry delta')
+
+local sort_sample = {{id=1,index=0,time=20,desc='Zulu',details='B',star=false},
+  {id=2,index=1,time=20,desc='Alpha',details='A',star=true},
+  {id=3,index=2,time=30,desc='Beta',details='C',star=false}}
+H.sort_rows(sort_sample, 2, true, 2)
+check(sort_sample[1].id == 3 and sort_sample[2].id == 2, 'Newest-first sort must resolve tied timestamps by undo index')
+H.sort_rows(sort_sample, 2, false, 2)
+check(sort_sample[1].id == 1, 'Second header click must invert time order')
+H.sort_rows(sort_sample, 3, false, 2)
+check(sort_sample[1].id == 2, 'Action column must sort alphabetically')
+H.sort_rows(sort_sample, 0, true, 2)
+check(sort_sample[1].star, 'Star column must sort bookmarks')
+check(not H.can_load(sort_sample, 3, 2) and H.can_load(sort_sample, 1, 2) and not H.can_load(sort_sample, nil, 2), 'Current and missing selections must not be loadable')
+-- Model a host which applies undo changes on the NEXT main-loop cycle.
+local callbacks, pending_index = {}, nil
+entries = {entry('Initial', 50, 1), entry('Selection', 51, 1), entry('Volume', 52, 0.5), entry('Later', 53, 0.25)}
+entries[1].selected=0; entries[2].selected=1; entries[3].selected=1; entries[4].selected=0
+current=3
+reaper.defer = function(f) callbacks[#callbacks+1]=f end
+reaper.Undo_SetCurPos = function(_, index) pending_index=index end
+local getter = reaper.GetMediaTrackInfo_Value
+reaper.GetMediaTrackInfo_Value = function(track, prop)
+  if fail_snapshot then error('simulated deferred snapshot failure') end
+  if prop == 'I_SELECTED' then return entries[current+1].selected end
+  return getter(track, prop)
+end
+local function drain()
+  local steps=0
+  while #callbacks > 0 do
+    steps=steps+1; assert(steps<10)
+    if pending_index ~= nil then current=pending_index; pending_index=nil end
+    table.remove(callbacks,1)()
+  end
+end
+ledger=H.refresh(project,key)
+local completion
+H.inspect_async(project,key,ledger.rows[3].id,function(ok) completion=ok end)
+check(completion == nil and current == 3, 'Detail capture must wait for the host to apply the requested state')
+drain()
+check(completion and current == 3, 'Deferred volume inspection must restore the original position')
+ledger=H.refresh(project,key)
+check(ledger.rows[3].details:find('-6.02',1,true), 'Deferred volume inspection must read actual historical values')
+H.inspect_async(project,key,ledger.rows[2].id,function(ok) completion=ok end)
+drain()
+ledger=H.refresh(project,key)
+check(completion and ledger.rows[2].details:find('unselected -> selected',1,true), 'Historical track-selection changes must be captured')
+fail_snapshot=true
+H.inspect_async(project,key,ledger.rows[3].id,function(ok) completion=ok end)
+drain()
+check(not completion and current==3, 'Deferred snapshot errors must restore the original state')
+fail_snapshot=false
+local before_item={tracks={},items={i={name='Clip',volume=1,position=0,length=1,mute=0,selected=0,fade_in=0,fade_out=0}}}
+local after_item={tracks={},items={i={name='Clip',volume=1,position=0,length=1,mute=0,selected=1,fade_in=0.2,fade_out=0}}}
+local item_details=H.diff(before_item,after_item)
+check(item_details:find('unselected -> selected',1,true) and item_details:find('fade_in',1,true), 'Item selection and fades must be captured')
 print('PASS: ' .. count .. ' model assertions (refresh, stars, branches, trimming, search, UTF-8, capture and restoration)')

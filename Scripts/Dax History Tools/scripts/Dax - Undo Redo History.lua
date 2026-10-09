@@ -17,7 +17,7 @@ end
 package.path = reaper.ImGui_GetBuiltinPath() .. '/?.lua;' .. package.path
 local loaded, ImGui = pcall(function() return require('imgui')('0.9') end)
 if not loaded then reaper.MB(tostring(ImGui), 'ReaImGui 0.9+ required', 0); reaper.defer(function() end); return end
-local ctx = ImGui.CreateContext('Dax Undo/Redo History')
+local ctx = ImGui.CreateContext('Dax Undo History+')
 -- Reuse one clipper and keep it alive while the window is hidden or collapsed.
 local clipper = ImGui.CreateListClipper(ctx)
 ImGui.Attach(ctx, clipper)
@@ -37,6 +37,9 @@ local search, only_stars, auto_refresh, keep_capture = '', false, true, false
 local shown, running, last_poll, show_request = true, true, -10, reaper.GetExtState(section, 'show')
 local status = 'Double-click an action to load that state. Stars are bookmarks.'
 local pending
+local inspecting = false
+local sort_column, sort_descending = 2, true
+local view = {}
 local version_file = io.open(directory .. 'VERSION', 'r') or io.open(directory .. '../VERSION', 'r')
 local version = version_file and version_file:read('*l') or '?'
 if version_file then version_file:close() end
@@ -67,7 +70,7 @@ end
 local function render()
   local em = ImGui.GetFontSize(ctx)
   ImGui.SetNextWindowSize(ctx, 78 * em, 44 * em, ImGui.Cond_FirstUseEver)
-  local visible, open = ImGui.Begin(ctx, 'Undo / Redo History  ' .. version, true)
+  local visible, open = ImGui.Begin(ctx, 'Undo History+  ' .. version .. '###DaxHistoryPlus', true)
   if visible then
     ImGui.SetNextItemWidth(ctx, 24 * em)
     local changed
@@ -85,7 +88,9 @@ local function render()
     if ImGui.Button(ctx, 'Next star') then navigate(1) end
     ImGui.SameLine(ctx)
     if ImGui.Button(ctx, 'Stop monitor') then running = false end
+    ImGui.BeginDisabled(ctx, not H.can_load(ledger.rows, selected, current))
     if ImGui.Button(ctx, 'Load selected state') and selected then pending = {'jump', selected} end
+    ImGui.EndDisabled(ctx)
     ImGui.SameLine(ctx)
     if ImGui.Button(ctx, 'Read selected details') and selected then pending = {'inspect', selected} end
     tip('While stopped, temporarily load the preceding and selected states, compare values, then restore your original position. This can reload FX.')
@@ -93,21 +98,33 @@ local function render()
     ImGui.Text(ctx, (name ~= '' and name or 'Unsaved project') .. '  |  ' .. #ledger.rows .. ' states')
     ImGui.TextWrapped(ctx, status)
     local flags = ImGui.TableFlags_Borders | ImGui.TableFlags_RowBg | ImGui.TableFlags_Resizable
-      | ImGui.TableFlags_ScrollY | ImGui.TableFlags_SizingStretchProp
+      | ImGui.TableFlags_ScrollY | ImGui.TableFlags_SizingStretchProp | ImGui.TableFlags_Sortable
     local _, height = ImGui.GetContentRegionAvail(ctx)
     if ImGui.BeginTable(ctx, 'history', 5, flags, 0, math.max(height, 8 * em)) then
       ImGui.TableSetupColumn(ctx, 'Star', ImGui.TableColumnFlags_WidthFixed, 3 * em)
       ImGui.TableSetupColumn(ctx, 'State', ImGui.TableColumnFlags_WidthFixed, 8 * em)
-      ImGui.TableSetupColumn(ctx, 'Time', ImGui.TableColumnFlags_WidthFixed, 6 * em)
+      ImGui.TableSetupColumn(ctx, 'Time', ImGui.TableColumnFlags_WidthFixed
+        | ImGui.TableColumnFlags_DefaultSort | ImGui.TableColumnFlags_PreferSortDescending, 6 * em)
       ImGui.TableSetupColumn(ctx, 'Action', ImGui.TableColumnFlags_WidthStretch, 2)
       ImGui.TableSetupColumn(ctx, 'Details', ImGui.TableColumnFlags_WidthStretch, 4)
       ImGui.TableSetupScrollFreeze(ctx, 0, 1)
       ImGui.TableHeadersRow(ctx)
-      -- Clip only matching rows so long project histories remain responsive.
-      local filtered = {}
-      for _, row in ipairs(ledger.rows) do
-        if (not only_stars or row.star) and H.matches(row, search) then filtered[#filtered + 1] = row end
+      if ImGui.TableNeedSort(ctx) then
+        local has_sort, column, _, direction = ImGui.TableGetColumnSortSpecs(ctx, 0)
+        if has_sort then sort_column, sort_descending = column, direction == ImGui.SortDirection_Descending end
       end
+      -- Clip only matching rows so long project histories remain responsive.
+      if view.raw ~= ledger.raw or view.current ~= current or view.search ~= search
+        or view.only_stars ~= only_stars or view.column ~= sort_column or view.descending ~= sort_descending then
+        local rows = {}
+        for _, row in ipairs(ledger.rows) do
+          if (not only_stars or row.star) and H.matches(row, search) then rows[#rows + 1] = row end
+        end
+        H.sort_rows(rows, sort_column, sort_descending, current)
+        view = {rows = rows, raw = ledger.raw, current = current, search = search,
+          only_stars = only_stars, column = sort_column, descending = sort_descending}
+      end
+      local filtered = view.rows
       ImGui.ListClipper_Begin(clipper, #filtered)
       while ImGui.ListClipper_Step(clipper) do
         local start, finish = ImGui.ListClipper_GetDisplayRange(clipper)
@@ -162,6 +179,11 @@ end
 
 local function loop()
   local tick = reaper.time_precise()
+  if inspecting then
+    reaper.SetExtState(section, 'heartbeat', tostring(tick), false)
+    reaper.defer(loop)
+    return
+  end
   reaper.SetExtState(section, 'heartbeat', tostring(tick), false)
   local requested = reaper.GetExtState(section, 'show')
   if requested ~= show_request then shown = true; show_request = requested end
@@ -177,12 +199,15 @@ local function loop()
     if operation == 'star' then H.star(project, key, id)
     elseif operation == 'jump' then status = H.jump(project, key, id) and 'Loaded selected state.' or 'State no longer available.'
     else
-      local success, message = H.inspect(project, key, id)
-      status = message or (success and 'Details read.' or 'Could not read details.')
-      -- Inspection is navigation, not a new edit. Reset passive capture baseline.
-      sessions[key] = nil
+      inspecting = true
+      H.inspect_async(project, key, id, function(success, message)
+        status = message or (success and 'Details read.' or 'Could not read details.')
+        -- Inspection is navigation, not a new edit. Reset passive capture baseline.
+        sessions[key] = nil
+        inspecting = false
+      end)
     end
-    refresh(true)
+    if not inspecting then refresh(true) end
   end
   if running then reaper.defer(function()
     local success, err = xpcall(loop, debug.traceback)

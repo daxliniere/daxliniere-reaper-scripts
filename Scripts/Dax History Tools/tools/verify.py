@@ -5,6 +5,7 @@ import re
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / '.tools'))
+sys.path.insert(0, str(ROOT / '.tools/testdeps'))
 try:
     from lupa.lua54 import LuaRuntime
 except ImportError:
