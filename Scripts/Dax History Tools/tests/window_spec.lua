@@ -6,6 +6,7 @@ local clipper_creations, attached_clipper = 0, nil
 local row_selectable_drawn, yellow_cells = false, 0
 local submitted_id, disabled = nil, false
 local selectable_count = 0
+local monitor_launches = 0
 local entries = {{desc = 'Initial', time = 1}, {desc = 'Volume adjusted', time = 2}}
 local I = setmetatable({}, {__index = function(t, name)
   local value
@@ -15,7 +16,10 @@ local I = setmetatable({}, {__index = function(t, name)
 end})
 I.CreateContext = function() return {} end
 I.GetFontSize = function() return 14 end
-I.Begin = function() return true, true end
+I.Begin = function()
+  if monitor_launches > 0 then store['DaxHistoryTools_v1monitor_heartbeat'] = tostring(tick) end
+  return true, true
+end
 I.BeginDisabled = function(_, value) disabled = value end
 I.EndDisabled = function() disabled = false end
 I.Button = function(_, label)
@@ -76,6 +80,11 @@ I.Text = function(_, text) assert(type(text) == 'string'); text_calls = text_cal
 package.preload.imgui = function() return function() return I end end
 reaper = {
   APIExists = function() return true end,
+  AddRemoveReaScript = function(_, _, path) assert(path:find('monitor.lua',1,true)); return 500 end,
+  Main_OnCommand = function(action)
+    assert(action == 500); monitor_launches = monitor_launches + 1
+    store['DaxHistoryTools_v1monitor_heartbeat'] = tostring(tick)
+  end,
   IsProjectDirty = function() return 0 end,
   GetExtState = function(s, k) return store[s .. k] or '' end,
   SetExtState = function(s, k, v) store[s .. k] = v end,
@@ -110,6 +119,8 @@ for _ = 1, 599 do assert(#queue > 0, 'Window stopped deferring'); table.remove(q
 assert(#messages == 0, table.concat(messages, '\n'))
 assert(text_calls >= 4200, 'Expected rendered project and history rows across 600 frames')
 assert(clipper_creations == 1, 'The complete window must reuse one clipper for every frame')
+assert(monitor_launches == 1, 'GUI must silently start one separate monitor, without repeated launches')
+assert(store['DaxHistoryTools_v1monitor_heartbeat'], 'Closing the GUI must not clear the separate monitor heartbeat')
 assert(yellow_cells >= 599, 'Starred cells must receive the yellow background')
 I.Begin = function() return true, false end
 local queued_before_close = #queue

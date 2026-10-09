@@ -1,6 +1,6 @@
 # Undo History+
 
-A searchable REAPER history window with starred states and four shortcut actions.
+A searchable REAPER history window with starred states and four shortcut actions and a separate always-on monitor.
 Requires **REAPER 7.79+** and **ReaImGui 0.9+** (available through ReaPack).
 Uses the live undo API. It never reads or writes `.RPP-UNDO`.
 
@@ -8,10 +8,10 @@ Uses the live undo API. It never reads or writes `.RPP-UNDO`.
 
 1. Run `!install.bat` to copy the scripts to your REAPER resource directory.
 2. In REAPER, choose Actions > Show action list > New action > Load ReaScript and load `Register History Tools.lua` from `Scripts/Dax History Tools`.
-3. Run that registration action once. It adds all five actions to the Main section.
+3. Run that registration action once. It adds all six actions to the Main section.
 4. Run `Dax - Undo Redo History`. Assign shortcuts or toolbar buttons to the Previous, Next, First and Last starred undo state actions.
 
-You can also load the five `Dax - ...` scripts directly from this repository. Keep `history_core.lua` beside them.
+You can also load the six `Dax - ...` scripts directly from this repository. Keep `history_core.lua` beside them.
 
 ## Use
 
@@ -20,7 +20,7 @@ You can also load the five `Dax - ...` scripts directly from this repository. Ke
 3. Previous/Next star choose the nearest marked state on either side of the current undo position. They work with the window and monitor closed, ignore the search filter, and do not wrap.
    First/Last starred undo state jump to the earliest/latest available bookmark, regardless of the current position. Run the registration action again after upgrading to add these two actions.
 4. Refresh reads the complete currently available history, including edits made while the tool was stopped. Auto-refresh polls the live API every 250 ms. No project save is needed. Switch project tabs to view that project's history.
-5. Keep capturing when window is closed is disabled initially. Closing the window stops the monitor and background polling. Reopening reads the full available history, but closed-window automatic detail capture and project-save detection are missed. Enable the checkbox if you want monitoring to continue while hidden; run the window action again to reopen it. With Auto-refresh off, a visible window refreshes manually; an explicitly enabled hidden monitor continues capture.
+5. The GUI silently launches `Dax - Undo History+ monitor` as a separate REAPER action if it is not running. Closing the GUI only stops the GUI. The monitor remains active until REAPER exits or you terminate its action, and monitors all open project tabs. It checks lightweight change counters every 250 ms and reads full history/snapshots only when a project changes. You can run the monitor action independently, including from your preferred REAPER startup-action setup, to capture before first opening the GUI. Existing history and bookmarks do not require the GUI to stay open. Rerun Register History Tools after upgrading to register the new monitor action.
 6. Read selected details compares the preceding and selected undo states while stopped, allowing a main-loop cycle after each load before reading values, then restores your original undo position. The window pauses its own refresh and interaction during this short inspection. This temporarily loads project states and may reload FX. Refresh itself never moves the undo position.
 7. Observed project-save states show Saved in the State column and a blue background. A starred saved state keeps its blue row and Saved label, with yellow confined to its star cell. The tool records named projects' clean states when it sees them; it cannot reconstruct historical save points from before monitoring, and a save followed by an edit between polls can be missed.
 
@@ -40,4 +40,4 @@ A star does not protect an entry from REAPER's memory limit. If REAPER discards 
 2. Run `!verify.bat`. It compiles every Lua file and executes behavior tests using Lua 5.4 through `lupa`. If needed: `python -m pip install --target .tools lupa`.
 3. Run `!github-sync.bat` for a full local version snapshot and push to origin. The helper bumps the version if committing changes under the same version as HEAD. No remote is configured in the initial repository.
 
-There is no compilation/build pipeline for these ReaScripts. The automated tests simulate REAPER's API, including execution of the complete window script and a standalone action. An isolated native smoke test is provided in `tools/host-smoke.ps1`; the initial native test attempt timed out before producing a result in this environment. Interactive testing in REAPER is still needed for layout and host-specific undo/FX behavior.
+There is no compilation/build pipeline for these ReaScripts. The automated tests simulate REAPER's API, including execution of the complete window script, standalone navigation, and the independent background monitor. An isolated native smoke test is provided in `tools/host-smoke.ps1`; the initial native test attempt timed out before producing a result in this environment. Interactive testing in REAPER is still needed for layout and host-specific undo/FX behavior.

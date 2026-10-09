@@ -28,12 +28,13 @@ end
 toolbar(1)
 reaper.atexit(function()
   reaper.DeleteExtState(section, 'heartbeat', false)
+  reaper.DeleteExtState(section, 'monitor_pause', false)
+  reaper.SetExtState(section, 'monitor_reset', tostring(reaper.time_precise()), false)
   toolbar(0)
 end)
 
-local sessions = {}
 local project, key, ledger, current, selected
-local search, only_stars, auto_refresh, keep_capture = '', false, true, false
+local search, only_stars, auto_refresh = '', false, true
 local shown, running, last_poll, show_request = true, true, -10, reaper.GetExtState(section, 'show')
 local status = 'Double-click an action to load that state. Stars are bookmarks.'
 local pending
@@ -44,18 +45,12 @@ local version_file = io.open(directory .. 'VERSION', 'r') or io.open(directory .
 local version = version_file and version_file:read('*l') or '?'
 if version_file then version_file:close() end
 
-local function refresh(capture)
+local function refresh()
   local active = reaper.EnumProjects(-1, '')
   local active_key = H.project_key(active)
   if project ~= active or key ~= active_key then selected = nil end
   project, key = active, active_key
-  local prefix
-  ledger, current, prefix = H.refresh(project, key)
-  local session = sessions[key] or {}; sessions[key] = session
-  if capture then
-    H.observe(session, ledger.rows, current, H.snapshot(project), prefix)
-    H.save(key, ledger)
-  end
+  ledger, current = H.refresh(project, key)
 end
 
 local function tip(text)
@@ -80,14 +75,10 @@ local function render()
     if ImGui.Button(ctx, 'Refresh') then refresh(true); status = 'History refreshed from REAPER.' end
     ImGui.SameLine(ctx); changed, auto_refresh = ImGui.Checkbox(ctx, 'Auto-refresh', auto_refresh)
     ImGui.SameLine(ctx); changed, only_stars = ImGui.Checkbox(ctx, 'Starred only', only_stars)
-    changed, keep_capture = ImGui.Checkbox(ctx, 'Keep capturing when window is closed', keep_capture)
-    tip('Run this action again to reopen. Turn this off before closing to stop the background monitor.')
-    ImGui.SameLine(ctx)
     if ImGui.Button(ctx, 'Previous star') then navigate(-1) end
     ImGui.SameLine(ctx)
     if ImGui.Button(ctx, 'Next star') then navigate(1) end
-    ImGui.SameLine(ctx)
-    if ImGui.Button(ctx, 'Stop monitor') then running = false end
+
     ImGui.BeginDisabled(ctx, not H.can_load(ledger.rows, selected, current))
     if ImGui.Button(ctx, 'Load selected state') and selected then pending = {'jump', selected} end
     ImGui.EndDisabled(ctx)
@@ -174,11 +165,19 @@ local function render()
     end
     ImGui.End(ctx)
   end
-  if not open then shown = false; if not keep_capture then running = false end end
+  if not open then shown = false; running = false end
 end
 
 local function loop()
   local tick = reaper.time_precise()
+  local monitor_heartbeat = tonumber(reaper.GetExtState(section, 'monitor_heartbeat'))
+  local starting = tonumber(reaper.GetExtState(section, 'monitor_starting')) or 0
+  if (not monitor_heartbeat or tick < monitor_heartbeat or tick - monitor_heartbeat >= 2) and tick >= starting then
+    local action = reaper.AddRemoveReaScript(true, 0, directory .. 'Dax - Undo History+ monitor.lua', true)
+    assert(action ~= 0, 'Could not register Undo History+ monitor.')
+    reaper.SetExtState(section, 'monitor_starting', tostring(tick + 2), false)
+    reaper.Main_OnCommand(action, 0)
+  end
   if inspecting then
     reaper.SetExtState(section, 'heartbeat', tostring(tick), false)
     reaper.defer(loop)
@@ -200,10 +199,12 @@ local function loop()
     elseif operation == 'jump' then status = H.jump(project, key, id) and 'Loaded selected state.' or 'State no longer available.'
     else
       inspecting = true
+      reaper.SetExtState(section, 'monitor_pause', tostring(reaper.time_precise() + 30), false)
       H.inspect_async(project, key, id, function(success, message)
         status = message or (success and 'Details read.' or 'Could not read details.')
-        -- Inspection is navigation, not a new edit. Reset passive capture baseline.
-        sessions[key] = nil
+        -- Inspection is navigation, not a new edit. Reset the monitor's capture baseline.
+        reaper.DeleteExtState(section, 'monitor_pause', false)
+        reaper.SetExtState(section, 'monitor_reset', tostring(reaper.time_precise()), false)
         inspecting = false
       end)
     end

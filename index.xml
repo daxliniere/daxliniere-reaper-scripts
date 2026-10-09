@@ -159,10 +159,22 @@
       </version>
       <version name="0.0.13" author="Dax Liniere">
         <changelog>Undo History+; sortable columns with newest first; deferred detail inspection; track/item selection and fade details; disable loading the current state.</changelog>
+        <source file="scripts/Dax - First starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20First%20starred%20undo%20state.lua</source>
+        <source file="scripts/Dax - Last starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Last%20starred%20undo%20state.lua</source>
+        <source file="scripts/Dax - Next starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Next%20starred%20undo%20state.lua</source>
+        <source file="scripts/Dax - Previous starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Previous%20starred%20undo%20state.lua</source>
+        <source file="scripts/Dax - Undo Redo History.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Undo%20Redo%20History.lua</source>
+        <source file="scripts/history_core.lua">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/scripts/history_core.lua</source>
+        <source file="VERSION">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/VERSION</source>
+        <source file="README.md">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/c370f5d15486083d3ff619d66dc14eb0db61f112/Scripts/Dax%20History%20Tools/README.md</source>
+      </version>
+      <version name="0.0.14" author="Dax Liniere">
+        <changelog>Independent always-on monitor; GUI silently starts missing monitor; monitor survives GUI closure; idle projects skip full scans; pause capture during historical detail inspection.</changelog>
         <source file="scripts/Dax - First starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20First%20starred%20undo%20state.lua</source>
         <source file="scripts/Dax - Last starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Last%20starred%20undo%20state.lua</source>
         <source file="scripts/Dax - Next starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Next%20starred%20undo%20state.lua</source>
         <source file="scripts/Dax - Previous starred undo state.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Previous%20starred%20undo%20state.lua</source>
+        <source file="scripts/Dax - Undo History+ monitor.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Undo%20History%2B%20monitor.lua</source>
         <source file="scripts/Dax - Undo Redo History.lua" main="main">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/Dax%20-%20Undo%20Redo%20History.lua</source>
         <source file="scripts/history_core.lua">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/scripts/history_core.lua</source>
         <source file="VERSION">https://raw.githubusercontent.com/daxliniere/daxliniere-reaper-scripts/main/Scripts/Dax%20History%20Tools/VERSION</source>
@@ -170,5 +182,7 @@
       </version>
     </reapack>
   </category>
+
+
 
 </index>
